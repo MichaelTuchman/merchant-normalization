@@ -2,7 +2,35 @@
 
 Merchant Normalization is an independent, downstream component of Finance Foundry. Finance Foundry ingests and harmonizes transactions from multiple sources; Merchant Normalization is intended to identify the merchants represented in those transactions and produce a separate, auditable merchant-mapping overlay.
 
-This repository currently contains project documentation only. The behavior and contracts below describe the intended application; no normalization code or live AWS adapter has been implemented.
+This repository contains an offline Python function for exact lookup against a caller-supplied approved mapping table. No live AWS adapter, fuzzy matching, AI matching, or approval workflow is implemented. The broader contracts below describe the intended application.
+
+## Using the lookup function
+
+Requires Python 3.10 or later and no third-party dependencies. From the repository root:
+
+```python
+from merchant_normalization import normalize_merchant
+
+# Synthetic example only; real tables must contain already-approved mappings.
+approved_mappings = {"EXAMPLE CAFE CITY ZZ": "Example Cafe"}
+result = normalize_merchant(
+    "EXAMPLE CAFE CITY ZZ",
+    approved_mappings,
+    mapping_version="example-v1",
+)
+assert result.merchant_name == "Example Cafe"
+assert result.review_status == "approved"
+```
+
+The returned `MerchantResult` includes the unchanged `description`, `merchant_name`, `review_status`, `method`, and `mapping_version`. Exact matches use method `exact_description`; unresolved results have no merchant and method `none`. `None`, blank, and unknown descriptions remain unresolved. Other description types raise `TypeError`; invalid table entries or blank versions raise `ValueError`.
+
+Lookup preserves case and whitespace and does not clean the input. Pass Finance Foundry's cleaned `description` as supplied. Each table key has a single approved merchant value; unapproved suggestions must not be included. A dictionary cannot detect conflicting entries overwritten before it was passed to the function: any future table loader must reject conflicting approvals before constructing the dictionary. The caller supplies a version identifying the approved table snapshot; persistent version storage is not implemented. The function performs no writes and leaves its inputs unchanged.
+
+Run the synthetic unit tests from the repository root:
+
+```powershell
+python -m unittest discover -s tests -v
+```
 
 ## What the application does
 
@@ -109,6 +137,6 @@ The mapping key is `description`, with at most one current approved merchant per
 
 The intended implementation is a small Python package with a CLI, minimal dependencies, explicit configuration, and offline core matching logic. AWS access will be isolated in adapters. Dry-run will be the default; persistent writes will require an explicit apply flag. Production financial data access, AWS writes, and approval of merchant suggestions require authorization.
 
-The first milestone is to document and verify the required input contract and define the output overlay schema. The supplied export structure is documented above, but the live Athena schema remains unverified. No AWS connection is made and no application code is implemented as part of this documentation milestone. Future automated tests will use synthetic fixtures and cover ambiguity, rule precedence, idempotence, and preservation of original records.
+The supplied export structure is documented above, but the live Athena schema remains unverified. The current implementation is limited to offline exact lookup. Synthetic tests cover approved and unresolved results, similar descriptions remaining unresolved, exact-key selection, repeatability, input preservation, and invalid inputs. A CLI, live adapter, table loader, and persistent approval/version history remain future work.
 
 Repository operating instructions are in [AGENTS.md](AGENTS.md).
