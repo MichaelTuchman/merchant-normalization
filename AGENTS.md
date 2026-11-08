@@ -7,7 +7,7 @@ This repository implements merchant identity normalization as a standalone, down
 - Never modify Finance Foundry source files, existing Athena views, raw records, or transaction exports.
 - The intended input is Finance Foundry's `trans_export` Athena view. Do not assume its column names, types, uniqueness constraints, or AWS identifiers. Verify the contract before implementing the live adapter.
 - Preserve original transaction descriptions, amounts, and other source fields exactly.
-- Write normalization results separately, keyed to a verified stable transaction identifier.
+- Write normalization results separately in a reusable merchant-mapping table keyed by Finance Foundry's cleaned `description`. This is a mapping key, not a unique transaction identifier; multiple transactions with the same description must reuse the same approved merchant mapping.
 - Do not commit actual transactions, account information, credentials, tokens, or other private financial data.
 
 ## Merchant normalization
@@ -23,7 +23,7 @@ This repository implements merchant identity normalization as a standalone, down
 - Dry-run must be the default. Persistent writes, including S3 or Athena changes, require an explicit apply flag.
 - Isolate AWS access in adapters; core matching logic and tests must run offline.
 - Use synthetic test fixtures. Cover ambiguity, rule precedence, idempotence, and preservation of original records.
-- Validate input schemas and key uniqueness; fail explicitly on missing or inconsistent identifiers.
+- Validate input schemas and description-key semantics. Repeated descriptions in transaction input are expected. Require at most one current approved merchant per description; fail explicitly on conflicting approvals. Define handling of missing or blank descriptions and preserve transaction row counts when applying mappings. A unique transaction identifier is not required for the merchant-mapping table.
 - Keep dependencies minimal and configuration explicit.
 
 ## Codex operating instructions
@@ -34,4 +34,4 @@ This repository implements merchant identity normalization as a standalone, down
 - Do not access production financial data, write to AWS, or approve proposed merchant mappings without authorization.
 
 ## First milestone
-Document the input contract required from `trans_export` and the output overlay schema. Identify fields and stable identifiers that must be verified. Do not invent the live schema or connect to AWS during this milestone.
+Document the input contract required from `trans_export` and the output overlay schema. Verify the cleaned `description` field and its stability, equality semantics, and handling of missing values. Define mapping uniqueness and version history separately from transaction identity. Do not invent the live schema or connect to AWS during this milestone.
