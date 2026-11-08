@@ -12,7 +12,71 @@ Fuzzy, heuristic, or model-generated matches will remain suggestions until revie
 
 ## Input
 
-The intended source is Finance Foundry's `12_trans_export` Athena view. Its live schema and access contract have not been verified. No column names, types, AWS identifiers, or uniqueness guarantees are assumed here.
+The intended source is Finance Foundry's `12_trans_export` Athena view. The following columns and R display types were supplied from an exported sample. They document the observed export, not a verified Athena schema or access contract.
+
+| Column | Observed R display type |
+| --- | --- |
+| `source_file_name` | `char` |
+| `source_system` | `char` |
+| `account_label` | `char` |
+| `account_type` | `char` |
+| `institution` | `char` |
+| `transaction_dt` | `IDat` |
+| `source_description` | `char` |
+| `description` | `char` |
+| `amount` | `num` |
+| `check_number` | `char` |
+| `status` | `char` |
+| `transaction_type` | `char` |
+| `transaction_subtype` | `char` |
+| `matched_transaction_type_rule_id` | `char` |
+
+### Synthetic sample rows
+
+These invented rows illustrate the supplied export structure without publishing actual transactions or account details. All values are synthetic; the rule identifiers are illustrative and do not document Finance Foundry's real rules. In this example only, `null` represents a missing value and `""` represents an empty string; the actual export serialization must still be specified.
+
+```json
+[
+  {
+    "source_file_name": "demo_202501.csv",
+    "source_system": "demo_card",
+    "account_label": "Example Credit Card",
+    "account_type": "credit_card",
+    "institution": "Example Bank",
+    "transaction_dt": "2025-01-10",
+    "source_description": "EXAMPLE CAFE     EXAMPLE CITY     ZZ",
+    "description": "EXAMPLE CAFE EXAMPLE CITY ZZ",
+    "amount": -12.34,
+    "check_number": null,
+    "status": null,
+    "transaction_type": "purchase",
+    "transaction_subtype": "",
+    "matched_transaction_type_rule_id": "DEMO_PURCHASE_001"
+  },
+  {
+    "source_file_name": "demo_202501.csv",
+    "source_system": "demo_card",
+    "account_label": "Example Credit Card",
+    "account_type": "credit_card",
+    "institution": "Example Bank",
+    "transaction_dt": "2025-01-11",
+    "source_description": "EXAMPLE ONLINE PAYMENT",
+    "description": "EXAMPLE ONLINE PAYMENT",
+    "amount": 100.00,
+    "check_number": null,
+    "status": null,
+    "transaction_type": "payment",
+    "transaction_subtype": "",
+    "matched_transaction_type_rule_id": "DEMO_PAYMENT_001"
+  }
+]
+```
+
+The supplied sample shows spacing differences between `source_description` and `description`. Neither field should be treated as an approved merchant identity. The existing `matched_transaction_type_rule_id` concerns transaction classification; it is not evidence of a merchant mapping or a stable transaction identifier. The meaning of amount signs must also be verified rather than inferred from these examples.
+
+### Contract still to verify
+
+No explicit transaction identifier appears among the supplied columns. Neither a row number nor a combination of filename, date, description, and amount can be assumed unique or stable: distinct transactions may share those values. A stable identifier remains a prerequisite for linking the output overlay safely.
 
 Before implementing a live adapter, the input contract must establish:
 
@@ -45,6 +109,6 @@ The physical field names, types, merchant identity representation, allowed statu
 
 The intended implementation is a small Python package with a CLI, minimal dependencies, explicit configuration, and offline core matching logic. AWS access will be isolated in adapters. Dry-run will be the default; persistent writes will require an explicit apply flag. Production financial data access, AWS writes, and approval of merchant suggestions require authorization.
 
-The first milestone is to document and verify the required input contract and define the output overlay schema. No live schema is asserted, no AWS connection is made, and no application code is implemented as part of this documentation milestone. Future automated tests will use synthetic fixtures and cover ambiguity, rule precedence, idempotence, and preservation of original records.
+The first milestone is to document and verify the required input contract and define the output overlay schema. The supplied export structure is documented above, but the live Athena schema remains unverified. No AWS connection is made and no application code is implemented as part of this documentation milestone. Future automated tests will use synthetic fixtures and cover ambiguity, rule precedence, idempotence, and preservation of original records.
 
 Repository operating instructions are in [AGENTS.md](AGENTS.md).
