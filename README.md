@@ -12,7 +12,7 @@ Fuzzy, heuristic, or model-generated matches will remain suggestions until revie
 
 ## Input
 
-The intended source is Finance Foundry's `12_trans_export` Athena view. The following columns and R display types were supplied from an exported sample. They document the observed export, not a verified Athena schema or access contract.
+The intended source is Finance Foundry's `trans_export` Athena view. The following columns and R display types were supplied from an exported sample. They document the observed export, not a verified Athena schema or access contract.
 
 | Column | Observed R display type |
 | --- | --- |
