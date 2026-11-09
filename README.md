@@ -4,7 +4,7 @@ Merchant Normalization is an independent, downstream component of Finance Foundr
 
 This repository contains an offline Python function for exact lookup against a caller-supplied approved mapping table. No live AWS adapter, fuzzy matching, AI matching, or approval workflow is implemented. The broader contracts below describe the intended application.
 
-## Using the lookup function
+## Using the current lookup function
 
 Requires Python 3.10 or later and no third-party dependencies. From the repository root:
 
@@ -32,11 +32,25 @@ Run the synthetic unit tests from the repository root:
 python -m unittest discover -s tests -v
 ```
 
+The current function does not accept a transaction date or select effective-dated mappings. Its example above demonstrates the existing exact-lookup mechanism only; it does not yet implement the date-aware design below.
+
 ## What the application does
 
-The application will use Finance Foundry's cleaned `description` as the stable key in a reusable merchant-mapping table. Multiple transactions with the same `description` will resolve through the same approved merchant mapping, regardless of their dates, amounts, or source files. Multiple descriptions may map to the same merchant. Transaction-description cleaning remains separate from identifying the underlying merchant. Approved mappings will use deterministic, explainable rules. Rules and approvals will be versioned so equal inputs under equal rules produce equal outputs.
+Merchant Normalization resolves each transaction description to the most recognizable business identity supported by evidence at the transaction date, using effective-dated mappings.
+
+The application will use Finance Foundry's cleaned `description` as the stable key in a reusable merchant-mapping table. Multiple transactions with the same `description` within the same effective period will resolve through the same approved merchant mapping. The same description may resolve to a different business identity in a different period; amounts and source files do not change that lookup. Multiple descriptions may map to the same merchant. Transaction-description cleaning remains separate from identifying the underlying merchant. Approved mappings will use deterministic, explainable rules. Rules and approvals will be versioned so equal inputs under equal rules produce equal outputs.
 
 Fuzzy, heuristic, or model-generated matches will remain suggestions until reviewed and approved. Unknown or ambiguous cases will remain unresolved rather than being assigned an invented merchant.
+
+### Evidence and effective dates
+
+A transaction descriptor may name a legal entity or local franchise operator while the customer recognizes a trading name or brand. Use the recognizable business identity only when evidence supports that relationship at the transaction date. A receipt, invoice, customer confirmation tied to the transaction, or dated business record can support review; retain references and the period supported. A present-day search result alone does not establish a historical relationship. Phone numbers or apparent name similarity alone do not establish an approved mapping.
+
+Each mapping will record `effective_from` (inclusive) and `effective_to` (exclusive), with an absent end date representing open-ended validity. A transaction matches when its date is on or after the start and before the end, if present. Approved periods for the same description must not overlap. Missing or invalid transaction dates, uncovered periods, and insufficient evidence yield unresolved results; overlapping approvals are a validation error. Do not automatically extend evidence beyond the period it supports.
+
+For example, a **synthetic** descriptor `EXAMPLE LOCAL SERVICES LLC` might map to `Example Home Care` during an evidenced franchise period and `Example Independent Services` during a later evidenced period. These are illustrative identities, not approved mappings. Historical transactions retain the identity applicable to their date instead of inheriting today's brand.
+
+Effective dates describe business validity. Mapping versions and approval timestamps describe what was recorded or approved and when; retain both so a lookup can be reproduced using the same description, transaction date, and mapping snapshot.
 
 ## Input
 
@@ -109,34 +123,37 @@ The supplied sample shows spacing differences between `source_description` and `
 Before implementing a live adapter, the input contract must establish:
 
 - The `description` field's type, nullability, encoding, equality semantics, and stability under Finance Foundry's cleaning rules. Define how missing or blank descriptions are handled and how cleaning-rule changes affect existing mappings.
+- The `transaction_dt` type, date interpretation, and missing/invalid-date policy needed to select an effective mapping.
 - The original transaction description field or fields and their types, encoding, and handling of missing values.
 - The source fields available for preservation and any additional context explicitly required by matching rules. Their names, types, and meanings must be verified rather than inferred.
 - The view's row granularity, duplicate behavior, and treatment of corrected or updated transactions.
 - The authorized AWS location and access configuration, to be verified before any live connection.
 
-The application will validate the agreed schema and description keys. The current approved mapping table must contain at most one approved merchant per `description`; conflicting approvals must fail explicitly. Missing or blank descriptions must remain unresolved under an explicit policy. Repeated descriptions in transaction input are valid. Original descriptions, amounts, and all other source fields will be preserved exactly. Actual transactions, account information, credentials, and other private financial data must never be committed to this repository.
+The application will validate the agreed schema and description keys. The approved mapping table must contain at most one applicable approved mapping per `description` and transaction date; overlapping approved periods and conflicting approvals must fail explicitly. Missing or blank descriptions must remain unresolved under an explicit policy. Repeated descriptions in transaction input are valid. Original descriptions, amounts, and all other source fields will be preserved exactly. Actual transactions, account information, credentials, and other private financial data must never be committed to this repository.
 
 ## Output
 
-The application will produce a separate, reusable merchant-mapping table keyed by `description`. Transactions will look up their merchant using that cleaned description, so many transactions can reuse one mapping without requiring a unique transaction identifier. Applying the current approved mapping must preserve transaction row counts and source values; review suggestions or historical versions must not multiply transaction rows. It will never modify Finance Foundry source files, existing Athena views, raw records, or transaction exports.
+The application will produce a separate, reusable merchant-mapping table keyed by `description`. Transactions will look up their merchant using that cleaned description and select the approved period containing `transaction_dt`, so many transactions can reuse one mapping without requiring a unique transaction identifier. Applying the current approved mapping must preserve transaction row counts and source values; review suggestions or historical versions must not multiply transaction rows. It will never modify Finance Foundry source files, existing Athena views, raw records, or transaction exports.
 
 The logical output contract requires the following information. These are conceptual requirements, not verified physical column names or a finalized storage schema.
 
 | Information | Purpose |
 | --- | --- |
-| `description` | Stable mapping key shared by every transaction with the same cleaned description. |
+| `description` | Reusable lookup key; transaction date selects its applicable mapping period. |
+| Effective dates | Inclusive `effective_from` and exclusive `effective_to`; absent end means open-ended. |
+| Evidence references | Support the business identity relationship and its applicable period. |
 | Original description reference | Preserves provenance to the source description used to establish the mapping, separately from the lookup key. |
-| Proposed or approved merchant | Records the merchant suggestion or approved identity, when one exists. |
+| Proposed or approved merchant | Records the most recognizable business identity supported by evidence for the applicable period. |
 | Matching method | Explains how the result was obtained. |
 | Rule identifier and version | Supports reproducibility and auditing of rule-based results. |
 | Review status | Distinguishes suggestions requiring review, approved mappings, and unresolved cases. |
 
-The mapping key is `description`, with at most one current approved merchant per key. Types, remaining physical field names, merchant identity representation, allowed status values, storage format, and representation of review suggestions and version history remain to be specified. Suggestions must remain distinguishable from approved mappings, and unresolved cases must not imply an approved merchant.
+The lookup key is `description`, with at most one applicable approved mapping per transaction date. Multiple nonoverlapping historical periods may exist for each description. Types, remaining physical field names, merchant identity representation, allowed status values, storage format, and representation of review suggestions and version history remain to be specified. Suggestions must remain distinguishable from approved mappings, and unresolved cases must not imply an approved merchant.
 
 ## Operating principles and current scope
 
 The intended implementation is a small Python package with a CLI, minimal dependencies, explicit configuration, and offline core matching logic. AWS access will be isolated in adapters. Dry-run will be the default; persistent writes will require an explicit apply flag. Production financial data access, AWS writes, and approval of merchant suggestions require authorization.
 
-The supplied export structure is documented above, but the live Athena schema remains unverified. The current implementation is limited to offline exact lookup. Synthetic tests cover approved and unresolved results, similar descriptions remaining unresolved, exact-key selection, repeatability, input preservation, and invalid inputs. A CLI, live adapter, table loader, and persistent approval/version history remain future work.
+The supplied export structure is documented above, but the live Athena schema remains unverified. The current implementation is limited to offline exact lookup. Synthetic tests cover approved and unresolved results, similar descriptions remaining unresolved, exact-key selection, repeatability, input preservation, and invalid inputs. Transaction-date lookup, effective-dated mapping validation, evidence storage, a CLI, live adapter, table loader, and persistent approval/version history remain future work. Future date-aware tests must cover inclusive/exclusive boundaries, open-ended periods, gaps, overlapping approvals, missing dates, and historical identity changes.
 
 Repository operating instructions are in [AGENTS.md](AGENTS.md).
